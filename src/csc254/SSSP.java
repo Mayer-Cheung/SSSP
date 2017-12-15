@@ -942,10 +942,6 @@ class Surface {
 			}
         }
         
-        //  print results
-        for (Vertex vt : vertices) {
-        	System.out.println(vt.distToSource);
-        }
     }
 
     // End of Delta stepping.
