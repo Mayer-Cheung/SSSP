@@ -21,6 +21,7 @@ import java.awt.event.*;
 import java.io.*;
 import javax.swing.*;
 
+import java.util.concurrent.TimeUnit;
 
 import java.util.*;
 import java.util.concurrent.BrokenBarrierException;
@@ -559,51 +560,38 @@ class Surface {
     // *************************
     // Find shortest paths via Dijkstra's algorithm.
     //
-    class WeightedVertex implements Comparable<WeightedVertex> {
-        Vertex v;
-        long weight;
-
-        public WeightedVertex(Vertex n) {
-            v = n;
-            weight = v.distToSource;
-        }
-
-        public int compareTo(WeightedVertex other) {
-            if (weight < other.weight) return -1;
-            if (weight == other.weight) return 0;
-            return 1;
-        }
-    }
-
     public void DijkstraSolve() throws Coordinator.KilledException {
-        PriorityQueue<WeightedVertex> pq =
-            new PriorityQueue<WeightedVertex>((n * 12) / 10);
-            // Leave some room for extra umremoved entries.
-        vertices[0].distToSource = 0;
-        // All other vertices still have maximal distToSource, as set by constructor.
-        pq.add(new WeightedVertex(vertices[0]));
+        PriorityQueue<Vertex> pq = new PriorityQueue<Vertex>(n, new DistanceComparator());
+        Vertex v = vertices[0];
+        for (Edge e : v.neighbors) {
+            Vertex o = e.other(v);
+            o.distToSource = e.weight;
+            o.predecessor = e;
+        }
+        for (int i = 1; i < n; i++) {   // don't bother adding source
+            pq.add(vertices[i]);
+        }
         while (!pq.isEmpty()) {
-            WeightedVertex wv = pq.poll();
-            Vertex v = wv.v;
-            if (v.predecessor != null) {
-                v.predecessor.select();
+            v = pq.poll();
+            if (v.distToSource == Long.MAX_VALUE) {
+                // this is a disconnected vertex, as are all that remain
+                break;
             }
-            if (wv.weight != v.distToSource) {
-                // This is a left-over pq entry.
-                continue;
-            }
+            v.predecessor.select();
             for (Edge e : v.neighbors) {
                 Vertex o = e.other(v);
                 long altDist = v.distToSource + e.weight;
+                // relax (o, altDist)
                 if (altDist < o.distToSource) {
+                    pq.remove(o);
                     o.distToSource = altDist;
                     o.predecessor = e;
-                    pq.add(new WeightedVertex(o));
+                    pq.add(o);
                 }
             }
         }
+        //  print results
     }
-
     // *************************
     // Find shortest paths via Delta stepping.
 
@@ -669,13 +657,13 @@ class Surface {
     HashMap<Long, Integer> t2i = new HashMap<Long, Integer>();
     
     //  check the current bucket is done
-    Vector<Boolean> isEmpty = new Vector<Boolean>();
+    ArrayList<Boolean> isEmpty = new ArrayList<Boolean>();
     
     //  check the whole buckets is empty
-    Vector<Boolean> isDone = new Vector<Boolean>();
+    ArrayList<Boolean> isDone = new ArrayList<Boolean>();
     
     //  message queue
-    Vector<ConcurrentLinkedQueue<Request>> msgQ = new Vector<ConcurrentLinkedQueue<Request>>();
+    ArrayList<ConcurrentLinkedQueue<Request>> msgQ = new ArrayList<ConcurrentLinkedQueue<Request>>();
     
     class ThreadWorker extends Thread {
     	private int numBuckets;
@@ -695,18 +683,7 @@ class Surface {
     	
     	
     	public void run() {
-//            if (Thread.currentThread().getId() == v2t.get(vertices[0]))
-//                buckets.get(0).add(vertices[0]);
-//
-//                try {
-//                    barrier.await();
-//                } catch (InterruptedException e) {
-//                    // TODO Auto-generated catch block
-//                    e.printStackTrace();
-//                } catch (BrokenBarrierException e) {
-//                    // TODO Auto-generated catch block
-//                    e.printStackTrace();
-//                }
+
             
     		while (true) {
     			
@@ -741,29 +718,12 @@ class Surface {
     					}
     				}    					
 
-//					//  1st barrier
-//					try {
-//						barrier.await();
-//					} catch (InterruptedException e) {
-//						// TODO Auto-generated catch block
-//						e.printStackTrace();
-//					} catch (BrokenBarrierException e) {
-//						// TODO Auto-generated catch block
-//						e.printStackTrace();
-//					}
+
 									
 					
 					//  deal received request
 					int curThreadInt = t2i.get(Thread.currentThread().getId());
-					while (msgQ.get(curThreadInt).size() > 0) {
-						Request rq = msgQ.get(curThreadInt).poll();
-						try {
-							rq.relax(buckets);
-						} catch (Coordinator.KilledException e) {
-							// TODO Auto-generated catch block
-							e.printStackTrace();
-						}
-					}
+
 
 					//  2nd barrier
                     try {
@@ -796,16 +756,7 @@ class Surface {
 					}
 					
 					
-					//  3rd barrier
-//					try {
-//						barrier.await();
-//					} catch (InterruptedException e) {
-//						// TODO Auto-generated catch block
-//						e.printStackTrace();
-//					} catch (BrokenBarrierException e) {
-//						// TODO Auto-generated catch block
-//						e.printStackTrace();
-//					}
+
 					
 					//  deal heavy
 					while (!msgQ.get(curThreadInt).isEmpty()) {
@@ -818,16 +769,7 @@ class Surface {
 						}
 					}				
 	
-					//  4th barrier
-//					try {
-//						barrier.await();
-//					} catch (InterruptedException e) {
-//						// TODO Auto-generated catch block
-//						e.printStackTrace();
-//					} catch (BrokenBarrierException e) {
-//						// TODO Auto-generated catch block
-//						e.printStackTrace();
-//					}
+
 					
 					
 					if (buckets.get(i).size() == 0) {
@@ -839,15 +781,15 @@ class Surface {
 					
 					
 				//  5th barrier
-					try {
-						barrier.await();
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					} catch (BrokenBarrierException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
+                    try {
+                        barrier.await();
+                    } catch (InterruptedException e) {
+                        // TODO Auto-generated catch block
+                        e.printStackTrace();
+                    } catch (BrokenBarrierException e) {
+                        // TODO Auto-generated catch block
+                        e.printStackTrace();
+                    }
 					
 					boolean f = true;
 					for (int i = 0; i < isEmpty.size(); i++) {
@@ -935,7 +877,7 @@ class Surface {
         for (int i = 0; i < numThreads; i++) {
         	t2i.put(threadPool.get(i).getId(), i);
         }
-        
+        long lStartTime = System.currentTimeMillis();
         //  start thread
         for (int i = 0; i < numThreads; i++) {
         	threadPool.get(i).start();
@@ -951,6 +893,14 @@ class Surface {
 			}
         }
         
+    
+        
+        long lEndTime = System.currentTimeMillis();
+        
+        long output = lEndTime - lStartTime;
+        
+        System.out.println("Elapsed time in milliseconds: " + output);
+//        //  print results
     }
 
     // End of Delta stepping.
